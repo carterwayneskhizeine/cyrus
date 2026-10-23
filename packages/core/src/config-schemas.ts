@@ -418,6 +418,14 @@ export const EdgeConfigSchema = z.object({
 		.enum(["read-only", "workspace-write", "danger-full-access"])
 		.optional(),
 
+	/**
+	 * Extra directories that every Claude session may read (operator whitelist).
+	 * Each entry is `~`-expanded and joined into the session's allowed
+	 * directories, which both grants `Read(dir/**)` and carves the path out of
+	 * the home-directory Read deny list. Defaults to none.
+	 */
+	claudeAllowedDirectories: z.array(z.string()).optional(),
+
 	/** Default Cursor model to use across all repositories (e.g., "composer-2", "gpt-5.4") */
 	cursorDefaultModel: z.string().optional(),
 
