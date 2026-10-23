@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- New `claudeAllowedDirectories` config key: list extra directories (e.g. `["/root/Code"]`) that every Claude session can read. Entries are tilde-expanded, granted to the session's allowed directories, and carved out of the home-directory read protections. Removing the key restores the default.
+
 ## [0.2.74] - 2026-10-21
 
 ### Added
