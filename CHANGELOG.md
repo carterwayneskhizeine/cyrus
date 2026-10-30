@@ -7,6 +7,18 @@ All notable changes to this project will be documented in this file.
 ### Added
 - New `claudeAllowedDirectories` config key: list extra directories (e.g. `["/root/Code"]`) that every Claude session can read. Entries are tilde-expanded, granted to the session's allowed directories, and carved out of the home-directory read protections. Removing the key restores the default. ([#1](https://github.com/carterwayneskhizeine/cyrus/pull/1))
 
+### Changed
+- Moved the Cyrus Inbox plugin package to a separately maintained private repository. The CLI, runtime and `post_message_to_codex` tool are unchanged. ([#1558](https://github.com/cyrusagents/cyrus/pull/1558))
+
+### Fixed
+- If the Cloudflare tunnel process exits unexpectedly after connecting, Cyrus now restarts it automatically instead of staying unreachable until you restart Cyrus. Restarts back off from 1 second up to 60 seconds between attempts. After 10 consecutive failed restarts Cyrus stops retrying and logs an error asking you to restart it. Stopping Cyrus, or a tunnel that fails during startup, no longer leaves a `cloudflared` process running. ([#1566](https://github.com/cyrusagents/cyrus/pull/1566))
+- Label routing now respects a repository's `teamKeys`. An issue labeled `Design` in one Linear team no longer routes to another team's repository that routes its own `Design` label, and no longer starts a multi-repository session against both. Repositories without `teamKeys` keep matching their routing labels across the whole workspace. ([#1393](https://github.com/cyrusagents/cyrus/issues/1393), [#1532](https://github.com/cyrusagents/cyrus/pull/1532))
+- Feedback sent with `linear_agent_give_feedback` now reaches child sessions that were restored after a restart. Before, it was dropped with a `not found in any repository` error and the child never resumed. ([#1562](https://github.com/cyrusagents/cyrus/pull/1562))
+
+### Security
+- Patched high-severity Zod collection-validation and body-parser compressed-body denial-of-service vulnerabilities plus fast-uri URL handling issues, while keeping upgraded Cursor session state under the Cyrus home directory. ([CYPACK-1603](https://linear.app/ceedar/issue/CYPACK-1603/address-open-security-patches-for-cyrus-cli), [#1563](https://github.com/cyrusagents/cyrus/pull/1563))
+- Updated Fastify to `5.12.7` across the CLI dependency graph, fixing a header-schema validation bypass and restoring a zero-advisory audit. ([CYPACK-1597](https://linear.app/ceedar/issue/CYPACK-1597/address-open-security-patches-for-cyrus-cli), [#1555](https://github.com/cyrusagents/cyrus/pull/1555))
+
 ## [0.2.74] - 2026-10-21
 
 ### Added

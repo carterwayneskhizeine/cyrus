@@ -47,12 +47,12 @@
 		"cyrus-simple-agent-runner": "workspace:*",
 		"cyrus-slack-event-transport": "workspace:*",
 		"cyrus-zulip-event-transport": "workspace:*",
-		"fastify": "^5.12.5",
+		"fastify": "^5.12.7",
 		"fastify-mcp": "^2.1.0",
 		"file-type": "^21.3.2",
 		"ignore": "^7.0.5",
 		"node-forge": "https://codeload.github.com/digitalbazaar/forge/tar.gz/ceba34402e329f0365134f23fe19898756527d65",
-		"zod": "4.3.6"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@types/node": "^20.0.0",
