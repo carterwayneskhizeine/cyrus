@@ -556,6 +556,12 @@
 			"type": "string",
 			"enum": ["read-only", "workspace-write", "danger-full-access"]
 		},
+		"claudeAllowedDirectories": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
 		"cursorDefaultModel": {
 			"type": "string"
 		},
