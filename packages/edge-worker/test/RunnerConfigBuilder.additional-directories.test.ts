@@ -15,7 +15,9 @@ const silentLogger: ILogger = {
 	error: () => {},
 } as unknown as ILogger;
 
-function makeBuilder(): RunnerConfigBuilder {
+function makeBuilder(
+	runnerType: "claude" | "codex" = "claude",
+): RunnerConfigBuilder {
 	const chatToolResolver: IChatToolResolver = {
 		buildChatAllowedTools: () => ["Read(**)"],
 	};
@@ -24,7 +26,7 @@ function makeBuilder(): RunnerConfigBuilder {
 		buildMergedMcpConfigPath: () => undefined,
 	};
 	const runnerSelector: IRunnerSelector = {
-		determineRunnerSelection: () => ({ runnerType: "claude" as const }),
+		determineRunnerSelection: () => ({ runnerType }),
 		getDefaultModelForRunner: () => "opus",
 		getDefaultFallbackModelForRunner: () => "sonnet",
 	};
@@ -54,14 +56,22 @@ function makeSession(
 	} as unknown as CyrusAgentSession;
 }
 
-function buildIssueConfig(session: CyrusAgentSession) {
-	return makeBuilder().buildIssueConfig({
+function buildIssueConfig(
+	session: CyrusAgentSession,
+	extra: {
+		operatorDirectories?: string[];
+		runnerType?: "claude" | "codex";
+		allowedTools?: string[];
+	} = {},
+) {
+	return makeBuilder(extra.runnerType ?? "claude").buildIssueConfig({
 		session,
 		repository: makeRepository(),
 		sessionId: "sess-1",
 		systemPrompt: "test",
-		allowedTools: ["Read(**)"],
+		allowedTools: extra.allowedTools ?? ["Read(**)"],
 		allowedDirectories: ["/repos/repo-a"],
+		operatorDirectories: extra.operatorDirectories,
 		disallowedTools: [],
 		cyrusHome: "/tmp/cyrus-home",
 		linearWorkspaceId: "ws-1",
@@ -119,6 +129,74 @@ describe("RunnerConfigBuilder additionalDirectories (multi-repo skill discovery)
 		const { config } = buildIssueConfig(session);
 
 		expect(config.additionalDirectories).toEqual(["/ws/root/repo-b"]);
+	});
+});
+
+describe("RunnerConfigBuilder operatorDirectories (claudeAllowedDirectories)", () => {
+	const singleRepoSession = makeSession({
+		path: "/ws/repo-a-worktree",
+		isGitWorktree: true,
+	} as unknown as CyrusAgentSession["workspace"]);
+
+	it("grants Edit/Write patterns and --add-dir roots for a writable Claude session", () => {
+		const { config } = buildIssueConfig(singleRepoSession, {
+			operatorDirectories: ["/root/Code"],
+			allowedTools: ["Read", "Edit", "Write", "Bash"],
+		});
+
+		expect(config.workingDirectory).toBe("/ws/repo-a-worktree");
+		expect(config.additionalDirectories).toEqual(["/root/Code"]);
+		expect(config.allowedTools).toEqual(
+			expect.arrayContaining(["Edit(//root/Code/**)", "Write(//root/Code/**)"]),
+		);
+		// Original bare entries stay untouched.
+		expect(config.allowedTools).toEqual(
+			expect.arrayContaining(["Read", "Edit", "Write", "Bash"]),
+		);
+	});
+
+	it("merges operator dirs with multi-repo sub-worktrees without duplicates", () => {
+		const session = makeSession({
+			path: "/ws/root",
+			isGitWorktree: true,
+			repoPaths: {
+				"repo-a": "/ws/root/repo-a",
+			},
+		} as unknown as CyrusAgentSession["workspace"]);
+		const { config } = buildIssueConfig(session, {
+			operatorDirectories: ["/root/Code", "/root/Code"],
+			allowedTools: ["Read", "Edit", "Write"],
+		});
+
+		expect(config.additionalDirectories).toEqual([
+			"/ws/root/repo-a",
+			"/root/Code",
+		]);
+	});
+
+	it("keeps read-only sessions read-only while still registering the dirs", () => {
+		const { config } = buildIssueConfig(singleRepoSession, {
+			operatorDirectories: ["/root/Code"],
+			allowedTools: ["Read", "WebFetch"],
+		});
+
+		expect(config.additionalDirectories).toEqual(["/root/Code"]);
+		expect(config.allowedTools).not.toEqual(
+			expect.arrayContaining(["Edit(//root/Code/**)", "Write(//root/Code/**)"]),
+		);
+		expect(config.allowedTools).toEqual(["Read", "WebFetch"]);
+	});
+
+	it("does not add --add-dir roots or patterns for non-Claude runners", () => {
+		const { config, runnerType } = buildIssueConfig(singleRepoSession, {
+			operatorDirectories: ["/root/Code"],
+			runnerType: "codex",
+			allowedTools: ["Read", "Edit", "Write"],
+		});
+
+		expect(runnerType).toBe("codex");
+		expect(config.additionalDirectories).toBeUndefined();
+		expect(config.allowedTools).toEqual(["Read", "Edit", "Write"]);
 	});
 });
 

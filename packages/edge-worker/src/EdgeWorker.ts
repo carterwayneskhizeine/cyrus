@@ -6907,6 +6907,7 @@ ${input.userComment}
 			systemPrompt,
 			allowedTools,
 			allowedDirectories,
+			operatorDirectories: this.config.claudeAllowedDirectories,
 			disallowedTools,
 			resumeSessionId,
 			labels,

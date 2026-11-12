@@ -423,6 +423,12 @@ export const EdgeConfigSchema = z.object({
 	 * Each entry is `~`-expanded and joined into the session's allowed
 	 * directories, which both grants `Read(dir/**)` and carves the path out of
 	 * the home-directory Read deny list. Defaults to none.
+	 *
+	 * For Claude sessions these are full operating directories, not just
+	 * read whitelists: each entry is also registered as an `--add-dir` root
+	 * and granted `Edit(dir/**)` / `Write(dir/**)` patterns (unless the
+	 * session's tool set is read-only). Other runners are unaffected —
+	 * Codex access is governed by `codexSandboxMode`.
 	 */
 	claudeAllowedDirectories: z.array(z.string()).optional(),
 

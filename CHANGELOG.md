@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - New `claudeAllowedDirectories` config key: list extra directories (e.g. `["/root/Code"]`) that every Claude session can read. Entries are tilde-expanded, granted to the session's allowed directories, and carved out of the home-directory read protections. Removing the key restores the default. ([#1](https://github.com/carterwayneskhizeine/cyrus/pull/1))
+- `claudeAllowedDirectories` entries are now full operating directories for Claude sessions, not just read whitelists: sessions with write tools can directly edit files and run builds there (each entry is added as an `--add-dir` root and granted `Edit`/`Write` patterns). Read-only sessions stay read-only, and other runners (Codex etc.) are unaffected.
 
 ### Changed
 - Moved the Cyrus Inbox plugin package to a separately maintained private repository. The CLI, runtime and `post_message_to_codex` tool are unchanged. ([#1558](https://github.com/cyrusagents/cyrus/pull/1558))
