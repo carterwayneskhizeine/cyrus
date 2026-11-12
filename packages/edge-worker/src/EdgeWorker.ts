@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { LinearClient } from "@linear/sdk";
@@ -85,6 +85,7 @@ import {
 import { CursorRunner } from "cyrus-cursor-runner";
 import { GeminiRunner } from "cyrus-gemini-runner";
 import {
+	allowedReviewAppIds,
 	extractCommentAuthor,
 	extractCommentBody,
 	extractCommentId,
@@ -97,6 +98,7 @@ import {
 	extractRepoName,
 	extractRepoOwner,
 	extractSessionKey,
+	formatReviewFindings,
 	GitHubAppTokenProvider,
 	GitHubCommentService,
 	type GitHubCommentWebhookEvent,
@@ -107,6 +109,8 @@ import {
 	isIssueCommentPayload,
 	isPullRequestReviewCommentPayload,
 	isPullRequestReviewPayload,
+	loadReviewFindings,
+	resolveReviewAppId,
 	stripMention,
 } from "cyrus-github-event-transport";
 import type { GitLabWebhookEvent } from "cyrus-gitlab-event-transport";
@@ -142,6 +146,12 @@ import {
 	type ResolvedSession,
 } from "cyrus-mcp-tools";
 import { OpenCodeRunner } from "cyrus-opencode-runner";
+import {
+	PlaneAgentRunCoordinator,
+	PlaneApiClient,
+	PlaneEventTransport,
+	PlaneIssueTrackerService,
+} from "cyrus-plane-event-transport";
 import {
 	SlackEventTransport,
 	type SlackWebhookEvent,
@@ -233,6 +243,8 @@ export class EdgeWorker extends EventEmitter {
 	private gitLabEventTransport: GitLabEventTransport | null = null; // GitLab event transport for forwarded GitLab webhooks
 	private slackEventTransport: SlackEventTransport | null = null;
 	private zulipEventTransport: ZulipEventTransport | null = null;
+	private planeIssueTracker: PlaneIssueTrackerService | null = null; // Plane agent runs (PLANE_* env vars)
+	private planeEventTransport: PlaneEventTransport | null = null;
 	private zulipChatSessionHandler: ChatSessionHandler<ZulipWebhookEvent> | null =
 		null;
 	private chatSessionHandler: ChatSessionHandler<SlackWebhookEvent> | null =
@@ -302,6 +314,8 @@ export class EdgeWorker extends EventEmitter {
 	 * Key format: `${createdAt}:${issueId}`
 	 */
 	private processedIssueUpdateKeys = new Set<string>();
+	/** Bounded review-level deduplication, including concurrent and queued suggestions. */
+	private processedGitHubSuggestionKeys = new Set<string>();
 
 	/**
 	 * Sessions parked due to blocked-by dependencies.
@@ -562,6 +576,16 @@ export class EdgeWorker extends EventEmitter {
 			}
 		}
 
+		// Plane is configured by env vars; its repositories use the tracker's
+		// workspace key as their linearWorkspaceId.
+		this.planeIssueTracker = this.createPlaneIssueTracker();
+		if (this.planeIssueTracker) {
+			this.issueTrackers.set(
+				this.planeIssueTracker.workspaceKey,
+				this.planeIssueTracker,
+			);
+		}
+
 		// Create activity sinks per workspace (one per workspace, mirrors issueTrackers)
 		for (const [workspaceId, issueTracker] of this.issueTrackers) {
 			this.activitySinks.set(
@@ -612,6 +636,10 @@ export class EdgeWorker extends EventEmitter {
 			getCyrusToolsMcpUrl: () => this.getCyrusToolsMcpUrl(),
 			createCyrusToolsOptions: (parentSessionId) =>
 				this.createCyrusToolsOptions(parentSessionId),
+			getTrackerMcpServers: (workspaceId) =>
+				this.planeIssueTracker?.workspaceKey === workspaceId
+					? { plane: this.planeIssueTracker.toolsMcpServerConfig() }
+					: undefined,
 		});
 		this.runnerConfigBuilder = new RunnerConfigBuilder(
 			this.toolPermissionResolver,
@@ -897,6 +925,7 @@ export class EdgeWorker extends EventEmitter {
 		this.registerGitLabEventTransport();
 		this.registerSlackEventTransport();
 		this.registerZulipEventTransport();
+		this.registerPlaneEventTransport();
 
 		// 3. Create and register ConfigUpdater (both platforms)
 		this.configUpdater = new ConfigUpdater(
@@ -1186,6 +1215,107 @@ export class EdgeWorker extends EventEmitter {
 	}
 
 	/**
+	 * Plane (self-hosted or cloud) agent runs. Enabled when PLANE_BASE_URL,
+	 * PLANE_WORKSPACE_SLUG, PLANE_CLIENT_ID and PLANE_CLIENT_SECRET are set.
+	 * The app installation id comes from PLANE_APP_INSTALLATION_ID, or from
+	 * the OAuth install redirect (saved to <cyrusHome>/plane-installation.json).
+	 */
+	private createPlaneIssueTracker(): PlaneIssueTrackerService | null {
+		const baseUrl = process.env.PLANE_BASE_URL?.trim().replace(/\/+$/, "");
+		const workspaceSlug = process.env.PLANE_WORKSPACE_SLUG?.trim();
+		const clientId = process.env.PLANE_CLIENT_ID?.trim();
+		const clientSecret = process.env.PLANE_CLIENT_SECRET?.trim();
+		if (!baseUrl || !workspaceSlug || !clientId || !clientSecret) {
+			return null;
+		}
+		const appInstallationId =
+			process.env.PLANE_APP_INSTALLATION_ID?.trim() ||
+			this.readPlaneInstallations()[workspaceSlug] ||
+			"";
+		const api = new PlaneApiClient({
+			baseUrl,
+			workspaceSlug,
+			clientId,
+			clientSecret,
+			appInstallationId,
+		});
+		return new PlaneIssueTrackerService(api, `plane-${workspaceSlug}`);
+	}
+
+	private planeInstallationsPath(): string {
+		return join(this.cyrusHome, "plane-installation.json");
+	}
+
+	private readPlaneInstallations(): Record<string, string> {
+		try {
+			return JSON.parse(readFileSync(this.planeInstallationsPath(), "utf8"));
+		} catch {
+			return {};
+		}
+	}
+
+	/**
+	 * Register the Plane webhook (agent runs) and OAuth install routes, if
+	 * Plane is configured. Plane's agent events become Linear-shaped agent
+	 * session webhooks, so they go through the same handling as Linear's.
+	 */
+	private registerPlaneEventTransport(): void {
+		const tracker = this.planeIssueTracker;
+		if (!tracker) {
+			return;
+		}
+		const webhookSecret = process.env.PLANE_WEBHOOK_SECRET?.trim() || "";
+		if (!webhookSecret) {
+			this.logger.warn(
+				"PLANE_WEBHOOK_SECRET is not set: Plane webhooks are accepted unsigned. Only do this on a local test instance.",
+			);
+		}
+
+		const coordinator = new PlaneAgentRunCoordinator({
+			tracker,
+			isKnownSession: (runId) =>
+				Boolean(this.agentSessionManager.getSession(runId)) ||
+				this.repositoryRouter.hasPendingSelection(runId),
+			dispatch: (webhook) =>
+				this.handleWebhook(
+					webhook as unknown as Webhook,
+					Array.from(this.repositories.values()),
+				),
+		});
+
+		this.planeEventTransport = new PlaneEventTransport({
+			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
+			webhookSecret,
+			onInstall: (query) => {
+				const installationId = query.app_installation_id!;
+				tracker.api.setAppInstallationId(installationId);
+				const installations = this.readPlaneInstallations();
+				installations[tracker.api.workspaceSlug] = installationId;
+				writeFileSync(
+					this.planeInstallationsPath(),
+					JSON.stringify(installations, null, 2),
+					{ mode: 0o600 },
+				);
+				this.logger.info(
+					`Plane app installed in ${tracker.api.workspaceSlug} (installation ${installationId})`,
+				);
+				return `Cyrus is installed in the Plane workspace "${tracker.api.workspaceSlug}". You can close this tab.`;
+			},
+		});
+		this.planeEventTransport.on("event", (payload) => {
+			void coordinator.handle(payload);
+		});
+		this.planeEventTransport.on("error", (error: Error) => {
+			this.handleError(error);
+		});
+		this.planeEventTransport.register();
+
+		this.logger.info(
+			`✅ Plane event transport registered for ${tracker.api.baseUrl} (workspace ${tracker.api.workspaceSlug}, key ${tracker.workspaceKey})${tracker.api.isInstalled ? "" : " — app not installed yet"}`,
+		);
+	}
+
+	/**
 	 * Register the Zulip event transport, if Zulip is configured.
 	 *
 	 * Unlike Slack, this is conditional: a Zulip outgoing webhook has no URL
@@ -1278,7 +1408,11 @@ export class EdgeWorker extends EventEmitter {
 		const slackAdapter = new SlackChatAdapter(
 			chatRepositoryProvider,
 			this.logger,
-			{ repositoryRoutingContext: routingContext, cyrusAppBaseUrl },
+			{
+				repositoryRoutingContext: routingContext,
+				cyrusAppBaseUrl,
+				userAccessControl: this.userAccessControl,
+			},
 		);
 
 		if (
@@ -1395,6 +1529,8 @@ export class EdgeWorker extends EventEmitter {
 		let githubPrQueueKey: string | undefined;
 		let hasReservedGitHubPrSlot = reservedGitHubPrSlot;
 		let githubPrSlotReleased = false;
+		let suggestionKey: string | undefined;
+		let suggestionAccepted = false;
 
 		try {
 			// Only handle comments on pull requests
@@ -1405,17 +1541,27 @@ export class EdgeWorker extends EventEmitter {
 
 			const repoFullName = extractRepoFullName(event);
 			const prNumber = extractPRNumber(event);
-			const commentBody = extractCommentBody(event);
+			let commentBody = extractCommentBody(event);
 			const commentAuthor = extractCommentAuthor(event);
 			const prTitle = extractPRTitle(event);
 			const sessionKey = extractSessionKey(event);
 			githubPrQueueKey = sessionKey;
 
 			const isPullRequestReview = isPullRequestReviewPayload(event.payload);
+			const isSuggestion =
+				isPullRequestReviewPayload(event.payload) &&
+				event.payload.review.state === "commented" &&
+				event.payload.review.user.type === "Bot" &&
+				Boolean(event.payload.review.commit_id) &&
+				event.payload.review.commit_id === event.payload.pull_request.head.sha;
 
 			// Skip comments from the bot itself to prevent infinite loops
 			const botUsername = process.env.GITHUB_BOT_USERNAME;
-			if (botUsername && commentAuthor === botUsername) {
+			if (
+				botUsername &&
+				(commentAuthor === botUsername ||
+					commentAuthor === `${botUsername}[bot]`)
+			) {
 				this.logger.debug(
 					`Ignoring comment from bot user @${botUsername} on ${repoFullName}#${prNumber}`,
 				);
@@ -1425,7 +1571,10 @@ export class EdgeWorker extends EventEmitter {
 			// For pull_request_review events, defensively check review state
 			// (must happen before the mention check — reviews don't contain @mentions)
 			if (isPullRequestReviewPayload(event.payload)) {
-				if (event.payload.review.state !== "changes_requested") {
+				if (
+					event.payload.action !== "submitted" ||
+					(event.payload.review.state !== "changes_requested" && !isSuggestion)
+				) {
 					this.logger.debug(
 						`Ignoring pull_request_review with state: ${event.payload.review.state}`,
 					);
@@ -1441,6 +1590,63 @@ export class EdgeWorker extends EventEmitter {
 					`PR review trigger is disabled, ignoring pull_request_review on ${repoFullName}#${prNumber}`,
 				);
 				return;
+			}
+
+			// App reviews default to denied, including direct signed deliveries.
+			// Resolve identity again here; forwarding headers are not covered by GitHub's signature.
+			if (
+				isPullRequestReviewPayload(event.payload) &&
+				event.payload.review.user.type === "Bot"
+			) {
+				if (event.payload.review.user.id === event.payload.pull_request.user.id)
+					return;
+				const ids = allowedReviewAppIds(
+					this.config.githubReviewAppPolicies,
+					event.payload.installation?.id.toString(),
+					event.payload.repository.owner,
+					isSuggestion,
+				);
+				if (ids.length === 0) return;
+				try {
+					const token = await this.resolveGitHubToken(event);
+					const appId = token
+						? await resolveReviewAppId(event.payload.review.user, token)
+						: null;
+					if (!appId || !ids.includes(appId)) return;
+					// Never accept reviews from the app used to run Cyrus itself.
+					const selfLogin = process.env.GITHUB_APP_SLUG;
+					if (selfLogin && commentAuthor === `${selfLogin}[bot]`) return;
+					if (isSuggestion) {
+						// Do not double-enqueue a review delivered under different webhook IDs.
+						const key = `${event.payload.installation?.id}:${repoFullName}:${prNumber}:${event.payload.review.id}`;
+						if (
+							!reservedGitHubPrSlot &&
+							this.processedGitHubSuggestionKeys.has(key)
+						)
+							return;
+						suggestionKey = key;
+						this.processedGitHubSuggestionKeys.add(key);
+						const findings = await loadReviewFindings(
+							{
+								owner: extractRepoOwner(event),
+								repo: extractRepoName(event),
+								pullNumber: prNumber!,
+								reviewId: event.payload.review.id,
+								authorId: event.payload.review.user.id,
+								commitId: event.payload.review.commit_id,
+							},
+							token!,
+						);
+						if (!findings.length) return;
+						commentBody = `Review suggestions from @${commentAuthor}:\n\n${formatReviewFindings(findings)}`;
+					}
+				} catch (error) {
+					this.logger.warn(
+						"Could not verify GitHub review app; ignoring review",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+					return;
+				}
 			}
 
 			// Only trigger on comments that mention the bot (when configured)
@@ -1543,6 +1749,7 @@ export class EdgeWorker extends EventEmitter {
 				if (this.activeGitHubPrSessions.has(sessionKey)) {
 					const queue = this.queuedGitHubPrEvents.get(sessionKey) ?? [];
 					queue.push(event);
+					suggestionAccepted = true;
 					this.queuedGitHubPrEvents.set(sessionKey, queue);
 					this.logger.info(
 						`Queued GitHub webhook for ${repoFullName}#${prNumber}; ${queue.length} event(s) waiting`,
@@ -1578,7 +1785,9 @@ export class EdgeWorker extends EventEmitter {
 						owner: extractRepoOwner(event),
 						repo: extractRepoName(event),
 						issueNumber: prNumber,
-						body: "Received your change request. Getting started on those changes now.",
+						body: isSuggestion
+							? "Received the review suggestions. Getting started on those findings now."
+							: "Received your change request. Getting started on those changes now.",
 					})
 					.catch((err: unknown) => {
 						this.logger.warn(
@@ -1794,6 +2003,7 @@ export class EdgeWorker extends EventEmitter {
 
 			// Start the session and handle completion
 			try {
+				suggestionAccepted = true;
 				const sessionInfo = await runner.start(taskInstructions);
 				this.logger.info(`GitHub session started: ${sessionInfo.sessionId}`);
 
@@ -1822,6 +2032,12 @@ export class EdgeWorker extends EventEmitter {
 				!githubPrSlotReleased
 			) {
 				this.advanceGitHubPrQueue(githubPrQueueKey);
+			}
+			if (suggestionKey && !suggestionAccepted)
+				this.processedGitHubSuggestionKeys.delete(suggestionKey);
+			if (this.processedGitHubSuggestionKeys.size > 1000) {
+				for (const key of [...this.processedGitHubSuggestionKeys].slice(0, 500))
+					this.processedGitHubSuggestionKeys.delete(key);
 			}
 			this.activeWebhookCount--;
 		}
@@ -2152,7 +2368,7 @@ ${reviewBody}
 - After making changes, commit and push them to the branch
 - Respond with a concise summary of the changes you made`;
 
-		return `You are working on a GitHub Pull Request that has received a change request review.
+		return `You are working on a GitHub Pull Request that has received ${isPullRequestReviewPayload(event.payload) && event.payload.review.state === "commented" ? "review suggestions from an explicitly allowed app" : "a change request review"}.
 
 ## Context
 - **Repository**: ${repoFullName}
@@ -2869,6 +3085,7 @@ ${taskSection}`;
 	async stop(): Promise<void> {
 		// Stop config file watcher
 		await this.configManager.stop();
+		this.planeIssueTracker?.dispose();
 
 		try {
 			await this.savePersistedState();
@@ -7262,9 +7479,9 @@ ${input.userComment}
 						(repoConfig.model as string | undefined) ||
 						"claude-opus-4-6";
 
-					// Build allowed/disallowed tools — same as what buildAgentRunnerConfig() uses.
-					// Without these, startup() inherits the user's defaultMode ("default"),
-					// which causes macOS permission prompts for file writes.
+					// Build the same permission policy that the live runner uses. WarmQuery
+					// handles the first prompt directly, so these startup options cannot rely
+					// on ClaudeRunner.start() to override loaded settings.defaultMode.
 					const allowedTools = this.buildAllowedTools(repo);
 					const disallowedTools = this.buildDisallowedTools(repo);
 
@@ -7277,6 +7494,7 @@ ${input.userComment}
 							...(allowedTools.length > 0 && { allowedTools }),
 							...(disallowedTools.length > 0 && { disallowedTools }),
 							settingSources: ["user", "project", "local"],
+							permissionMode: "default",
 							strictMcpConfig: this.config.strictMcpConfig ?? true,
 							// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is intentionally not set here;
 							// see CYPACK-1108 and ClaudeRunner.start() for context.

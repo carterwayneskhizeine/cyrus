@@ -4,6 +4,23 @@ This changelog documents internal development changes, refactors, tooling update
 
 ## [Unreleased]
 
+## [0.2.77] - 2026-11-11
+
+### Changed
+- Recorded v0.2.77 release verification, including a live F1 drive of Claude Code 2.1.322 tool use and session resume. ([CYPACK-1638](https://linear.app/ceedar/issue/CYPACK-1638/run-a-release), [#1593](https://github.com/cyrusagents/cyrus/pull/1593))
+- Release packaging: set all 18 coordinated public workspace packages, including `cyrus-ai`, to **0.2.77**, matching the Hosted GitHub App review minimum. Publication remains a separate release step. ([CYPACK-1636](https://linear.app/ceedar/issue/CYPACK-1636), [#1591](https://github.com/cyrusagents/cyrus/pull/1591))
+
+## [0.2.76] - 2026-11-06
+
+### Changed
+- Recorded release verification for all 18 packages, including authenticated Claude tool execution, session continuity, and the pre-warmed manual-permission path. ([CYPACK-1624](https://linear.app/ceedar/issue/CYPACK-1624/run-a-release), [#1584](https://github.com/cyrusagents/cyrus/pull/1584))
+- Added installed-package and warm-session permission-contract coverage plus a retained [compatibility and acceptance record](apps/f1/test-drives/2026-11-05-cypack-1623-anthropic-sdk-acceptance.md) for the Anthropic SDK update. Cold and opt-in warm sessions now explicitly retain Cyrus's manual permission mode even when loaded settings request `auto` or `acceptEdits`. The runtime receipt binds the reviewed source, packed and installed artifacts, exact SDK/native versions, and intended Claude identity before requiring ordered successful Read and Bash results; it also rejects post-result session write loss. ([CYPACK-1623](https://linear.app/ceedar/issue/CYPACK-1623/update-anthropic-aiclaude-agent-sdk-and-anthropic-aisdk-to-the-latest), [#1583](https://github.com/cyrusagents/cyrus/pull/1583))
+
+## [0.2.75] - 2026-11-03
+
+### Changed
+- Recorded release verification for the combined v0.2.74 and v0.2.75 payload; v0.2.74 passed its dry run but was never published, so its changes first ship in v0.2.75. ([CYPACK-1618](https://linear.app/ceedar/issue/CYPACK-1618/run-a-release), [#1579](https://github.com/cyrusagents/cyrus/pull/1579))
+
 ## [0.2.74] - 2026-10-21
 
 ### Added
