@@ -36,6 +36,7 @@ const RELOAD_MERGED_KEYS = [
 	"claudeDefaultModel",
 	"claudeDefaultFallbackModel",
 	"claudeAllowedDirectories",
+	"claudePermissionMode",
 	"geminiDefaultModel",
 	"codexDefaultModel",
 	"codexSandboxMode",
@@ -326,6 +327,9 @@ export class ConfigManager extends EventEmitter {
 				// Replace on explicit value; removing the key restores the default
 				// (no extra readable directories).
 				claudeAllowedDirectories: parsedConfig.claudeAllowedDirectories,
+				// Replace on explicit value; removing the key restores the runner's
+				// built-in "default" permission mode.
+				claudePermissionMode: parsedConfig.claudePermissionMode,
 				cursorDefaultModel:
 					parsedConfig.cursorDefaultModel || this.config.cursorDefaultModel,
 				cursorDefaultFallbackModel:

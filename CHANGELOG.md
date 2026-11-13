@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - New `claudeAllowedDirectories` config key: list extra directories (e.g. `["/root/Code"]`) that every Claude session can read. Entries are tilde-expanded, granted to the session's allowed directories, and carved out of the home-directory read protections. Removing the key restores the default. ([#1](https://github.com/carterwayneskhizeine/cyrus/pull/1))
 - `claudeAllowedDirectories` entries are now full operating directories for Claude sessions, not just read whitelists: sessions with write tools can directly edit files and run builds there (each entry is added as an `--add-dir` root and granted `Edit`/`Write` patterns). Read-only sessions stay read-only, and other runners (Codex etc.) are unaffected.
+- New `claudePermissionMode` config key: choose the permission mode for Claude sessions (`default`, `acceptEdits`, `auto`, `bypassPermissions`, `dontAsk`, `plan`). The built-in `default` silently denies tool calls that fall through allow-rule analysis (sessions cannot approve anything headless); set `bypassPermissions` on fully-trusted self-hosted setups so sessions can run builds and deployments against operator directories. Removing the key restores `default`. Applies to Linear/GitHub/GitLab issue sessions and chat sessions.
 
 ## [0.2.77] - 2026-11-11
 

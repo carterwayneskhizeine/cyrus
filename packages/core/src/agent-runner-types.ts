@@ -3,6 +3,7 @@ import type {
 	HookCallbackMatcher,
 	HookEvent,
 	McpServerConfig,
+	PermissionMode,
 	SDKMessage,
 	SDKUserMessage,
 	SdkPluginConfig,
@@ -469,6 +470,12 @@ export interface AgentRunnerConfig {
 	 * the cwd, so their repo-local skills get discovered.
 	 */
 	additionalDirectories?: string[];
+	/**
+	 * Claude permission mode override (e.g. "default", "acceptEdits",
+	 * "bypassPermissions"). Claude-only — other runners ignore it. When
+	 * omitted, ClaudeRunner uses its built-in "default".
+	 */
+	permissionMode?: PermissionMode;
 	/** Session ID to resume from a previous session */
 	resumeSessionId?: string;
 	/** Runner implementation that owns resumeSessionId, used to avoid cross-runner resumes */

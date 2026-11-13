@@ -62,6 +62,7 @@ function buildIssueConfig(
 		operatorDirectories?: string[];
 		runnerType?: "claude" | "codex";
 		allowedTools?: string[];
+		permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
 	} = {},
 ) {
 	return makeBuilder(extra.runnerType ?? "claude").buildIssueConfig({
@@ -72,6 +73,7 @@ function buildIssueConfig(
 		allowedTools: extra.allowedTools ?? ["Read(**)"],
 		allowedDirectories: ["/repos/repo-a"],
 		operatorDirectories: extra.operatorDirectories,
+		permissionMode: extra.permissionMode,
 		disallowedTools: [],
 		cyrusHome: "/tmp/cyrus-home",
 		linearWorkspaceId: "ws-1",
@@ -225,5 +227,37 @@ describe("resolveIssueMcpConfigPath", () => {
 		);
 
 		expect(result).toBe("/repo/.mcp.json");
+	});
+});
+
+describe("RunnerConfigBuilder permissionMode (claudePermissionMode override)", () => {
+	function singleRepoSession(): CyrusAgentSession {
+		return makeSession({
+			path: "/ws/repo-a-worktree",
+			isGitWorktree: true,
+		} as unknown as CyrusAgentSession["workspace"]);
+	}
+
+	it("forwards permissionMode for claude sessions", () => {
+		const { config } = buildIssueConfig(singleRepoSession(), {
+			permissionMode: "bypassPermissions",
+		});
+
+		expect(config.permissionMode).toBe("bypassPermissions");
+	});
+
+	it("does not set permissionMode for non-claude runners", () => {
+		const { config } = buildIssueConfig(singleRepoSession(), {
+			runnerType: "codex",
+			permissionMode: "bypassPermissions",
+		});
+
+		expect(config.permissionMode).toBeUndefined();
+	});
+
+	it("omits permissionMode when not configured (runner default applies)", () => {
+		const { config } = buildIssueConfig(singleRepoSession());
+
+		expect(config.permissionMode).toBeUndefined();
 	});
 });

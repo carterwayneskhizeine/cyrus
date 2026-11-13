@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type {
 	HookCallbackMatcher,
 	HookEvent,
@@ -99,6 +100,12 @@ export interface ChatRunnerConfigInput {
 	platformMcpConfigOverrides?: readonly string[];
 	/** Whether Claude should ignore ambient MCP configuration. Defaults to true. */
 	strictMcpConfig?: boolean;
+	/**
+	 * Claude permission mode override, from `claudePermissionMode` — Claude
+	 * sessions only (other runners ignore it). When omitted, ClaudeRunner
+	 * keeps its built-in "default".
+	 */
+	permissionMode?: PermissionMode;
 	/** Plugins to load for the chat session (provides managed skills). */
 	plugins?: SdkPluginConfig[];
 	/**
@@ -191,6 +198,13 @@ export interface IssueRunnerConfigInput {
 	 * by its own sandbox mode.
 	 */
 	operatorDirectories?: string[];
+	/**
+	 * Claude permission mode override, from `claudePermissionMode`. Applied
+	 * to the runner config as `permissionMode` for Claude sessions only
+	 * (other runners ignore it). When omitted, ClaudeRunner keeps its
+	 * built-in "default".
+	 */
+	permissionMode?: PermissionMode;
 	/**
 	 * GitHub App installation token matched to the session repository's org
 	 * (from the cyrus-hosted-pushed token store). When set, it's exposed to
@@ -334,6 +348,8 @@ export class RunnerConfigBuilder {
 			...(mcpConfig ? { mcpConfig } : {}),
 			...(mcpConfigPath ? { mcpConfigPath } : {}),
 			strictMcpConfig: input.strictMcpConfig ?? true,
+			...(runnerType === "claude" &&
+				input.permissionMode && { permissionMode: input.permissionMode }),
 			...(input.resumeSessionId
 				? { resumeSessionId: input.resumeSessionId }
 				: {}),
@@ -627,6 +643,13 @@ export class RunnerConfigBuilder {
 					]),
 				];
 			}
+		}
+
+		// Claude permission mode override (claudePermissionMode): the runner
+		// built-in "default" auto-denies headless tool calls that fall through
+		// rule analysis. Claude-only — other runners treat the field as opaque.
+		if (runnerType === "claude" && input.permissionMode) {
+			config.permissionMode = input.permissionMode;
 		}
 
 		if (input.resumeSessionId) {

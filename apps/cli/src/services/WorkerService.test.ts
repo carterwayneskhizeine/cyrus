@@ -104,6 +104,7 @@ describe("WorkerService", () => {
 			codexDefaultModel: "gpt-5.3-codex",
 			codexSandboxMode: "read-only",
 			claudeAllowedDirectories: ["/tmp/allowed-docs"],
+			claudePermissionMode: "bypassPermissions",
 			cursorDefaultModel: "composer-2",
 			cursorDefaultFallbackModel: "gpt-5.4",
 			opencodeDefaultModel: "anthropic/claude-sonnet-4.5",

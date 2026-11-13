@@ -582,6 +582,17 @@
 				"type": "string"
 			}
 		},
+		"claudePermissionMode": {
+			"type": "string",
+			"enum": [
+				"default",
+				"acceptEdits",
+				"auto",
+				"bypassPermissions",
+				"dontAsk",
+				"plan"
+			]
+		},
 		"cursorDefaultModel": {
 			"type": "string"
 		},

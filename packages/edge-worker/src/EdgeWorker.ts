@@ -1172,6 +1172,7 @@ export class EdgeWorker extends EventEmitter {
 			},
 			getPlatformMcpConfigOverrides,
 			getStrictMcpConfig: () => this.config.strictMcpConfig,
+			getClaudePermissionMode: () => this.config.claudePermissionMode,
 			ensureLinearTokenFresh: (linearWorkspaceId) =>
 				this.ensureLinearTokenFresh(linearWorkspaceId),
 			resolveSkillsConfig: async ({ repository, repositoryPaths }) => {
@@ -7125,6 +7126,7 @@ ${input.userComment}
 			allowedTools,
 			allowedDirectories,
 			operatorDirectories: this.config.claudeAllowedDirectories,
+			permissionMode: this.config.claudePermissionMode,
 			disallowedTools,
 			resumeSessionId,
 			labels,
