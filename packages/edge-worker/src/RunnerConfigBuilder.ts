@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type {
 	HookCallbackMatcher,
 	HookEvent,
@@ -99,6 +100,12 @@ export interface ChatRunnerConfigInput {
 	platformMcpConfigOverrides?: readonly string[];
 	/** Whether Claude should ignore ambient MCP configuration. Defaults to true. */
 	strictMcpConfig?: boolean;
+	/**
+	 * Claude permission mode override, from `claudePermissionMode` — Claude
+	 * sessions only (other runners ignore it). When omitted, ClaudeRunner
+	 * keeps its built-in "default".
+	 */
+	permissionMode?: PermissionMode;
 	/** Plugins to load for the chat session (provides managed skills). */
 	plugins?: SdkPluginConfig[];
 	/**
@@ -181,6 +188,23 @@ export interface IssueRunnerConfigInput {
 	 * for Codex; applied for Claude when the egress sandbox is enabled.
 	 */
 	sandboxWritablePaths?: string[];
+	/**
+	 * Operator-owned directories (absolute), from
+	 * `claudeAllowedDirectories` — e.g. the host's own checkout tree. For
+	 * Claude sessions these are full operating directories, not just read
+	 * whitelists: registered as `--add-dir` roots and granted Edit/Write
+	 * (only when the session already has Edit/Write, so read-only tool sets
+	 * stay read-only). Other runners ignore them here — Codex is governed
+	 * by its own sandbox mode.
+	 */
+	operatorDirectories?: string[];
+	/**
+	 * Claude permission mode override, from `claudePermissionMode`. Applied
+	 * to the runner config as `permissionMode` for Claude sessions only
+	 * (other runners ignore it). When omitted, ClaudeRunner keeps its
+	 * built-in "default".
+	 */
+	permissionMode?: PermissionMode;
 	/**
 	 * GitHub App installation token matched to the session repository's org
 	 * (from the cyrus-hosted-pushed token store). When set, it's exposed to
@@ -324,6 +348,8 @@ export class RunnerConfigBuilder {
 			...(mcpConfig ? { mcpConfig } : {}),
 			...(mcpConfigPath ? { mcpConfigPath } : {}),
 			strictMcpConfig: input.strictMcpConfig ?? true,
+			...(runnerType === "claude" &&
+				input.permissionMode && { permissionMode: input.permissionMode }),
 			...(input.resumeSessionId
 				? { resumeSessionId: input.resumeSessionId }
 				: {}),
@@ -587,6 +613,43 @@ export class RunnerConfigBuilder {
 					),
 				];
 			}
+		}
+
+		// Operator-owned directories (claudeAllowedDirectories): upgrade them
+		// from a read whitelist to full operating directories for Claude —
+		// registered as `--add-dir` roots (also lets the runner auto-load
+		// skills/configs rooted there) and granted Edit/Write path patterns,
+		// so sessions can work directly in e.g. the host's own checkout tree.
+		// Same guard as the sandbox block: only when the session already has
+		// Edit/Write, so read-only tool sets stay read-only. Claude-only
+		// because other runners would see the path-scoped patterns as opaque
+		// tool names; Codex access is governed by its sandbox mode instead.
+		if (runnerType === "claude" && input.operatorDirectories?.length) {
+			const operatorDirs = input.operatorDirectories;
+			config.additionalDirectories = [
+				...new Set([...(config.additionalDirectories ?? []), ...operatorDirs]),
+			];
+			const hasTool = (name: string) =>
+				input.allowedTools.some((t) => t === name || t.startsWith(`${name}(`));
+			const writeTools = ["Edit", "Write"].filter(hasTool);
+			if (writeTools.length > 0) {
+				// Absolute paths need an extra leading `/` in Claude tool patterns.
+				config.allowedTools = [
+					...new Set([
+						...input.allowedTools,
+						...writeTools.flatMap((tool) =>
+							operatorDirs.map((p) => `${tool}(/${p}/**)`),
+						),
+					]),
+				];
+			}
+		}
+
+		// Claude permission mode override (claudePermissionMode): the runner
+		// built-in "default" auto-denies headless tool calls that fall through
+		// rule analysis. Claude-only — other runners treat the field as opaque.
+		if (runnerType === "claude" && input.permissionMode) {
+			config.permissionMode = input.permissionMode;
 		}
 
 		if (input.resumeSessionId) {

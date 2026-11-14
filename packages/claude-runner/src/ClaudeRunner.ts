@@ -672,7 +672,10 @@ export class ClaudeRunner extends EventEmitter implements IAgentRunner {
 					// Preserve the pre-0.3.286 SDK permission policy: Cyrus tool rules
 					// and canUseTool handle approvals, regardless of permissions.defaultMode,
 					// provider, or telemetry. Omission now lets Claude Code select auto.
-					permissionMode: "default",
+					// Overridable via config (claudePermissionMode) — "default" auto-denies
+					// headless tool calls that fall through rule analysis, since there is
+					// no interactive approval path.
+					permissionMode: this.config.permissionMode ?? "default",
 					env: {
 						...buildBaseSessionEnv(),
 						// CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is intentionally NOT set while

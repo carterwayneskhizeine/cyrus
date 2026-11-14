@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage, SdkPluginConfig } from "cyrus-claude-runner";
 import type {
 	AgentRunnerConfig,
@@ -136,6 +137,8 @@ export interface ChatSessionHandlerDeps {
 	getPlatformMcpConfigOverrides?: () => readonly string[] | undefined;
 	/** Live read of whether Claude should ignore ambient MCP configuration. */
 	getStrictMcpConfig?: () => boolean | undefined;
+	/** Live read of the Claude permission mode override (`claudePermissionMode`). */
+	getClaudePermissionMode?: () => PermissionMode | undefined;
 	/**
 	 * Refresh the workspace's Linear access token if it has expired. Called
 	 * before each runner config is built, because the Linear MCP server
@@ -860,6 +863,7 @@ export class ChatSessionHandler<TEvent> {
 			repositoryPaths,
 			platformMcpConfigOverrides: this.deps.getPlatformMcpConfigOverrides?.(),
 			strictMcpConfig: this.deps.getStrictMcpConfig?.(),
+			permissionMode: this.deps.getClaudePermissionMode?.(),
 			plugins: skillsConfig.plugins,
 			skills: skillsConfig.skills,
 			opencodeGlobalConfig: this.deps.getOpenCodeGlobalConfig?.(),

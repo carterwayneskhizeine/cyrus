@@ -4,6 +4,7 @@ import type {
 	JsonSchemaOutputFormat,
 	McpServerConfig,
 	OutputFormat,
+	PermissionMode,
 	SandboxSettings,
 	SDKAssistantMessage,
 	SDKMessage,
@@ -38,6 +39,13 @@ export interface ClaudeRunnerConfig {
 	 * that makes repo-local skills in multi-repo sub-worktrees discoverable.
 	 */
 	additionalDirectories?: string[];
+	/**
+	 * SDK permission mode override. Defaults to "default", which auto-denies
+	 * any headless tool call that falls through allow-rule analysis (there is
+	 * no interactive approval path). Set e.g. "bypassPermissions" for
+	 * fully-trusted self-hosted setups.
+	 */
+	permissionMode?: PermissionMode;
 	resumeSessionId?: string; // Session ID to resume from previous Claude session
 	workspaceName?: string;
 	systemPrompt?: string;

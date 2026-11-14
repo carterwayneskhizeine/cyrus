@@ -355,6 +355,7 @@ export class EdgeWorker extends EventEmitter {
 			zulipMcpConfigs: resolveList(config.zulipMcpConfigs),
 			linearMcpConfigs: resolveList(config.linearMcpConfigs),
 			githubMcpConfigs: resolveList(config.githubMcpConfigs),
+			claudeAllowedDirectories: resolveList(config.claudeAllowedDirectories),
 		};
 	}
 
@@ -1171,6 +1172,7 @@ export class EdgeWorker extends EventEmitter {
 			},
 			getPlatformMcpConfigOverrides,
 			getStrictMcpConfig: () => this.config.strictMcpConfig,
+			getClaudePermissionMode: () => this.config.claudePermissionMode,
 			ensureLinearTokenFresh: (linearWorkspaceId) =>
 				this.ensureLinearTokenFresh(linearWorkspaceId),
 			resolveSkillsConfig: async ({ repository, repositoryPaths }) => {
@@ -1929,7 +1931,10 @@ export class EdgeWorker extends EventEmitter {
 			const allowedTools =
 				this.toolPermissionResolver.buildGithubAllowedTools(repository);
 			const disallowedTools = this.buildDisallowedTools(repository);
-			const allowedDirectories: string[] = [repository.repositoryPath];
+			const allowedDirectories: string[] = [
+				repository.repositoryPath,
+				...(this.config.claudeAllowedDirectories ?? []),
+			];
 
 			// Create agent runner using the standard config builder
 			const { config: runnerConfig, runnerType } =
@@ -2672,7 +2677,10 @@ ${taskSection}`;
 			const allowedTools =
 				this.toolPermissionResolver.buildGithubAllowedTools(repository);
 			const disallowedTools = this.buildDisallowedTools(repository);
-			const allowedDirectories: string[] = [repository.repositoryPath];
+			const allowedDirectories: string[] = [
+				repository.repositoryPath,
+				...(this.config.claudeAllowedDirectories ?? []),
+			];
 
 			// Create agent runner using the standard config builder
 			const { config: runnerConfig, runnerType } =
@@ -4719,6 +4727,7 @@ ${taskSection}`;
 				attachmentsDir,
 				...allRepoPaths,
 				...this.gitService.getGitMetadataDirectoriesForWorkspace(workspace),
+				...(this.config.claudeAllowedDirectories ?? []),
 			]),
 		];
 
@@ -7116,6 +7125,8 @@ ${input.userComment}
 			systemPrompt,
 			allowedTools,
 			allowedDirectories,
+			operatorDirectories: this.config.claudeAllowedDirectories,
+			permissionMode: this.config.claudePermissionMode,
 			disallowedTools,
 			resumeSessionId,
 			labels,

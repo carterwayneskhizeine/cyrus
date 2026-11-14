@@ -423,6 +423,39 @@ export const EdgeConfigSchema = z.object({
 		.enum(["read-only", "workspace-write", "danger-full-access"])
 		.optional(),
 
+	/**
+	 * Extra directories that every Claude session may read (operator whitelist).
+	 * Each entry is `~`-expanded and joined into the session's allowed
+	 * directories, which both grants `Read(dir/**)` and carves the path out of
+	 * the home-directory Read deny list. Defaults to none.
+	 *
+	 * For Claude sessions these are full operating directories, not just
+	 * read whitelists: each entry is also registered as an `--add-dir` root
+	 * and granted `Edit(dir/**)` / `Write(dir/**)` patterns (unless the
+	 * session's tool set is read-only). Other runners are unaffected —
+	 * Codex access is governed by `codexSandboxMode`.
+	 */
+	claudeAllowedDirectories: z.array(z.string()).optional(),
+
+	/**
+	 * Permission mode for Claude sessions. When omitted, ClaudeRunner uses
+	 * "default", which auto-denies any headless tool call that falls through
+	 * allow-rule analysis — including some compound Bash commands — because
+	 * there is no interactive approval path. Set "bypassPermissions" on
+	 * fully-trusted self-hosted setups so sessions can execute without
+	 * permission checks (e.g. to deploy from an operator checkout).
+	 */
+	claudePermissionMode: z
+		.enum([
+			"default",
+			"acceptEdits",
+			"auto",
+			"bypassPermissions",
+			"dontAsk",
+			"plan",
+		])
+		.optional(),
+
 	/** Default Cursor model to use across all repositories (e.g., "composer-2", "gpt-5.4") */
 	cursorDefaultModel: z.string().optional(),
 
