@@ -9,6 +9,399 @@ All notable changes to this project will be documented in this file.
 - `claudeAllowedDirectories` entries are now full operating directories for Claude sessions, not just read whitelists: sessions with write tools can directly edit files and run builds there (each entry is added as an `--add-dir` root and granted `Edit`/`Write` patterns). Read-only sessions stay read-only, and other runners (Codex etc.) are unaffected. ([#2](https://github.com/carterwayneskhizeine/cyrus/pull/2))
 - New `claudePermissionMode` config key: choose the permission mode for Claude sessions (`default`, `acceptEdits`, `auto`, `bypassPermissions`, `dontAsk`, `plan`). The built-in `default` silently denies tool calls that fall through allow-rule analysis (sessions cannot approve anything headless); set `bypassPermissions` on fully-trusted self-hosted setups so sessions can run builds and deployments against operator directories. Removing the key restores `default`. Applies to Linear/GitHub/GitLab issue sessions and chat sessions. ([#2](https://github.com/carterwayneskhizeine/cyrus/pull/2))
 
+## [0.2.83] - 2026-11-18
+
+### Added
+
+- Add Slack channel allowlisting and a Linear-only wildcard in user access configuration. ([#1614](https://github.com/cyrusagents/cyrus/pull/1614))
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.83
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.83
+
+#### cyrus-core
+- cyrus-core@0.2.83
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.83
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.83
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.83
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.83
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.83
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.83
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.83
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.83
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.83
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.83
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.83
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.83
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.83
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.83
+
+#### cyrus-ai
+- cyrus-ai@0.2.83
+
+## [0.2.82] - 2026-11-18
+
+### Fixed
+
+- Apply Automatic tool approval to Claude and Codex sessions started or resumed from Slack and Zulip. ([#1613](https://github.com/cyrusagents/cyrus/pull/1613))
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.82
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.82
+
+#### cyrus-core
+- cyrus-core@0.2.82
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.82
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.82
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.82
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.82
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.82
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.82
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.82
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.82
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.82
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.82
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.82
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.82
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.82
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.82
+
+#### cyrus-ai
+- cyrus-ai@0.2.82
+
+## [0.2.81] - 2026-11-18
+
+### Added
+
+- Set `"toolApprovalMode": "auto"` in `config.json` to have Claude and Codex review tool approvals in issue sessions. Claude uses auto mode and Codex uses the reviewer behind `--approve-for-me`. Existing denials, sandbox limits, and configured MCP server scope still apply. Allowed tools remains the default. ([#1612](https://github.com/cyrusagents/cyrus/pull/1612))
+
+### Changed
+
+- Bundle Codex CLI and SDK 0.170.0 and use GPT-6.2 Sol when no Codex model is configured. Existing model choices remain explicit overrides. ([#1612](https://github.com/cyrusagents/cyrus/pull/1612))
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.81
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.81
+
+#### cyrus-core
+- cyrus-core@0.2.81
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.81
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.81
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.81
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.81
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.81
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.81
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.81
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.81
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.81
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.81
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.81
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.81
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.81
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.81
+
+#### cyrus-ai
+- cyrus-ai@0.2.81
+
+## [0.2.80] - 2026-11-18
+
+### Added
+
+- Add per-runtime Slack channel and user block lists. Slack user blocking uses the existing access rules. ([#1610](https://github.com/cyrusagents/cyrus/pull/1610))
+- Append custom instructions to the system prompt for newly started Claude, Codex, Gemini, and OpenCode sessions.
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.80
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.80
+
+#### cyrus-core
+- cyrus-core@0.2.80
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.80
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.80
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.80
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.80
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.80
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.80
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.80
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.80
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.80
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.80
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.80
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.80
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.80
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.80
+
+#### cyrus-ai
+- cyrus-ai@0.2.80
+
+## [0.2.79] - 2026-11-16
+
+### Added
+
+- Attribute personal-device Slack replies to the verified owner with “From [owner]'s device”. Shared-runner footers are hidden for now. Omit attribution without trusted Hosted metadata or an available owner profile. Render it as a regular context block without an attachment border or model name. ([CYHOST-1477](https://linear.app/ceedar/issue/CYHOST-1477), [#1596](https://github.com/cyrusagents/cyrus/pull/1596), [#1604](https://github.com/cyrusagents/cyrus/pull/1604))
+
+### Fixed
+
+- Preserve existing provider credentials and local settings during `cyrus auth`, replace obsolete pairing credentials, and persist the selected Hosted URL for subsequent synchronization. ([CYHOST-1477](https://linear.app/ceedar/issue/CYHOST-1477), [#1596](https://github.com/cyrusagents/cyrus/pull/1596))
+- Linear card images and videos keep downloading after an OAuth token refresh that follows a config reload, instead of failing with `401 Unauthorized` until the daemon restarts. ([#1582](https://github.com/cyrusagents/cyrus/issues/1582), [#1602](https://github.com/cyrusagents/cyrus/pull/1602))
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.79
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.79
+
+#### cyrus-core
+- cyrus-core@0.2.79
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.79
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.79
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.79
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.79
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.79
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.79
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.79
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.79
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.79
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.79
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.79
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.79
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.79
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.79
+
+#### cyrus-ai
+- cyrus-ai@0.2.79
+
+## [0.2.78] - 2026-11-12
+
+### Changed
+
+- **Action required: update GitHub App settings for CI failure routing.** The App owner must update the App delivering the webhooks: the Hosted operator for Hosted/proxied delivery, or the operator of a fully self-hosted App. Existing Apps are **not** updated automatically by upgrading Cyrus. ([CYPACK-1635](https://linear.app/ceedar/issue/CYPACK-1635), [#1590](https://github.com/cyrusagents/cyrus/pull/1590))
+  - In **GitHub App settings → Permissions & events → Repository permissions**, set **Commit statuses** and **Checks** to **Read-only** or higher. Keep **Pull requests** at **Read-only** or higher; retain existing **Read and write** access used by Cyrus.
+  - Under **Subscribe to events**, enable **Status** (`status`) and **Check run** (`check_run`), then save the changes. Keep existing event subscriptions enabled.
+  - For existing installations, an installation owner must **approve any newly requested permissions**. Updating the App settings alone does not grant new permissions to existing installations.
+  - Hosted-connected self-hosted users must upgrade to **cyrus-ai v0.2.78 or higher** before enabling CI feedback. Hosted shows the required/current CLI versions and an upgrade link, blocks enabling on older or unknown versions, and still permits turning the feature off. After upgrading, opt in with **CI feedback** in Hosted → Agent → Behaviours, or top-level **`"ciFailureTrigger": true`** in a directly managed `config.json`. It is off by default; config changes apply without a CLI restart. The updated self-host setup manifest covers newly created Apps, but existing Apps still need the manual updates above.
+
+### Added
+- Report device metadata during authentication and send presence heartbeats every ten minutes for personal and shared Hosted devices. Persist the paired team/device identity without changing standalone installations. ([CYHOST-1477](https://linear.app/ceedar/issue/CYHOST-1477), [#1596](https://github.com/cyrusagents/cyrus/pull/1596))
+- Route failed GitHub commit statuses (including Semaphore) and completed failing checks to the existing responsible Cyrus session, with current-revision validation, durable deduplication and bounded automatic attempts. CI continuation is opt-in via live `ciFailureTrigger` config (no restart), with escaped XML context and a Hosted Behaviour toggle. ([CYPACK-1635](https://linear.app/ceedar/issue/CYPACK-1635), [#1590](https://github.com/cyrusagents/cyrus/pull/1590))
+
+### Technical Details
+- Stabilized CI routing tests by waiting for durable dispatch completion instead of fixed delays, including slow dispatches and the per-PR attempt limit across session changes. Production concurrency guards are unchanged. ([CYPACK-1635](https://linear.app/ceedar/issue/CYPACK-1635), [#1590](https://github.com/cyrusagents/cyrus/pull/1590))
+
+### Packages
+
+#### cyrus-cloudflare-tunnel-client
+- cyrus-cloudflare-tunnel-client@0.2.78
+
+#### cyrus-mcp-tools
+- cyrus-mcp-tools@0.2.78
+
+#### cyrus-core
+- cyrus-core@0.2.78
+
+#### cyrus-claude-runner
+- cyrus-claude-runner@0.2.78
+
+#### cyrus-config-updater
+- cyrus-config-updater@0.2.78
+
+#### cyrus-linear-event-transport
+- cyrus-linear-event-transport@0.2.78
+
+#### cyrus-github-event-transport
+- cyrus-github-event-transport@0.2.78
+
+#### cyrus-gitlab-event-transport
+- cyrus-gitlab-event-transport@0.2.78
+
+#### cyrus-slack-event-transport
+- cyrus-slack-event-transport@0.2.78
+
+#### cyrus-zulip-event-transport
+- cyrus-zulip-event-transport@0.2.78
+
+#### cyrus-plane-event-transport
+- cyrus-plane-event-transport@0.2.78
+
+#### cyrus-simple-agent-runner
+- cyrus-simple-agent-runner@0.2.78
+
+#### cyrus-opencode-runner
+- cyrus-opencode-runner@0.2.78
+
+#### cyrus-codex-runner
+- cyrus-codex-runner@0.2.78
+
+#### cyrus-cursor-runner
+- cyrus-cursor-runner@0.2.78
+
+#### cyrus-gemini-runner
+- cyrus-gemini-runner@0.2.78
+
+#### cyrus-edge-worker
+- cyrus-edge-worker@0.2.78
+
+#### cyrus-ai
+- cyrus-ai@0.2.78
+
 ## [0.2.77] - 2026-11-11
 
 ### Changed

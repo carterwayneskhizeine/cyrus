@@ -691,6 +691,30 @@
 		"strictMcpConfig": {
 			"type": "boolean"
 		},
+		"toolApprovalMode": {
+			"type": "string",
+			"enum": ["allowlist", "auto"]
+		},
+		"slackBlockedChannelIds": {
+			"maxItems": 200,
+			"type": "array",
+			"items": {
+				"type": "string",
+				"pattern": "^[CGD][A-Z0-9]+$"
+			}
+		},
+		"slackAllowedChannelIds": {
+			"maxItems": 200,
+			"type": "array",
+			"items": {
+				"type": "string",
+				"pattern": "^[CGD][A-Z0-9]+$"
+			}
+		},
+		"customSystemInstructions": {
+			"type": "string",
+			"maxLength": 8000
+		},
 		"issueUpdateTrigger": {
 			"type": "boolean"
 		},
@@ -733,6 +757,9 @@
 				"required": ["installationId", "organization", "appIds"],
 				"additionalProperties": false
 			}
+		},
+		"ciFailureTrigger": {
+			"type": "boolean"
 		},
 		"userAccessControl": {
 			"type": "object",

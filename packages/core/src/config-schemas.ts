@@ -12,6 +12,10 @@ export const RunnerTypeSchema = z.enum([
 ]);
 export type RunnerType = z.infer<typeof RunnerTypeSchema>;
 
+/** Tool approval mode (`toolApprovalMode` in config.json). */
+export const ToolApprovalModeSchema = z.enum(["allowlist", "auto"]);
+export type ToolApprovalMode = z.infer<typeof ToolApprovalModeSchema>;
+
 /**
  * User identifier for access control matching.
  * Supports multiple formats for flexibility:
@@ -39,6 +43,12 @@ export const UserAccessControlConfigSchema = z.object({
 	 * a list without any leaves Slack open to every user.
 	 * Empty array means no one is allowed on either (effectively disables Cyrus).
 	 * Omitting this field means everyone is allowed (unless blocked).
+	 *
+	 * `{ "id": "*" }` is a Linear-only wildcard: it admits every Linear user
+	 * with an ID (not one without), never matches Slack, and is not a pattern
+	 * anywhere else (a bare `"*"` or a wildcard in `blockedUsers` is literal).
+	 * Combine it with `{ slackId }` entries to restrict only Slack users, e.g.
+	 * `[{ "id": "*" }, { "slackId": "U012AB3CD" }]`.
 	 */
 	allowedUsers: z.array(UserIdentifierSchema).optional(),
 
@@ -415,7 +425,7 @@ export const EdgeConfigSchema = z.object({
 	/** Default Gemini model to use across all repositories (e.g., "gemini-2.5-pro") */
 	geminiDefaultModel: z.string().optional(),
 
-	/** Default Codex model to use across all repositories (e.g., "gpt-6-astra", "gpt-5.5", "gpt-5.3-codex") */
+	/** Default Codex model to use across all repositories (e.g., "gpt-6.2-sol", "gpt-6.2-astra") */
 	codexDefaultModel: z.string().optional(),
 
 	/** Codex command sandbox mode. Defaults to workspace-write; full host access is opt-in. */
@@ -586,6 +596,35 @@ export const EdgeConfigSchema = z.object({
 	strictMcpConfig: z.boolean().optional(),
 
 	/**
+	 * How tool calls are approved in Claude and Codex issue sessions.
+	 * - `"allowlist"` (default when omitted): existing behavior — the operator
+	 *   allowed-tool lists pre-approve tools.
+	 * - `"auto"`: provider-native automatic review. Claude runs with
+	 *   `permissionMode: "auto"` (model classifier) and Codex threads use
+	 *   `approvalPolicy: "on-request"` + `approvalsReviewer: "auto_review"`
+	 *   (the `--approve-for-me` equivalent) inside the existing sandbox.
+	 *   The ordinary allowed-tool list is no longer pre-approved; explicit
+	 *   denials, MCP server scope, sandboxing and prompt-specific (e.g.
+	 *   read-only) tool policies still apply. Chat sessions and other runners
+	 *   keep allowlists.
+	 */
+	toolApprovalMode: ToolApprovalModeSchema.optional(),
+	slackBlockedChannelIds: z
+		.array(z.string().regex(/^[CGD][A-Z0-9]+$/))
+		.max(200)
+		.optional(),
+	/**
+	 * Slack channels Cyrus may respond in. Omitted allows every channel that
+	 * is not blocked; an empty list allows none. `slackBlockedChannelIds`
+	 * still applies first.
+	 */
+	slackAllowedChannelIds: z
+		.array(z.string().regex(/^[CGD][A-Z0-9]+$/))
+		.max(200)
+		.optional(),
+	customSystemInstructions: z.string().trim().max(8000).optional(),
+
+	/**
 	 * Whether to trigger agent sessions when issue title, description, or attachments are updated.
 	 * When enabled, the agent receives context showing what changed (old vs new values).
 	 * Defaults to true if not specified.
@@ -633,6 +672,9 @@ export const EdgeConfigSchema = z.object({
 			}),
 		)
 		.optional(),
+
+	/** Opt in to continuing existing sessions on GitHub CI failures. Defaults to false. */
+	ciFailureTrigger: z.boolean().optional(),
 
 	/**
 	 * Global user access control settings.

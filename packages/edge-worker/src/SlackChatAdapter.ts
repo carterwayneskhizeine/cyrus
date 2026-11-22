@@ -63,6 +63,8 @@ export class SlackChatAdapter
 	private behavioursPageUrl: string;
 	private userAccessControl: UserAccessControl | undefined;
 	private logger: ILogger;
+	private readonly isBlocked?: (channelId: string) => boolean;
+	private readonly isChannelAllowed?: (channelId: string) => boolean;
 	private selfBotId: string | undefined;
 
 	constructor(
@@ -84,12 +86,17 @@ export class SlackChatAdapter
 			 * UserAccessControl.checkSlackAccess.
 			 */
 			userAccessControl?: UserAccessControl;
+			isBlocked?: (channelId: string) => boolean;
+			/** Live read of `slackAllowedChannelIds`; omitted allows all. */
+			isChannelAllowed?: (channelId: string) => boolean;
 		},
 	) {
 		this.repositoryProvider = repositoryProvider;
 		this.repositoryRoutingContext =
 			options?.repositoryRoutingContext?.trim() || "";
 		this.userAccessControl = options?.userAccessControl;
+		this.isBlocked = options?.isBlocked;
+		this.isChannelAllowed = options?.isChannelAllowed;
 		const appBaseUrl = options?.cyrusAppBaseUrl?.trim().replace(/\/+$/, "");
 		this.behavioursPageUrl = appBaseUrl
 			? `${appBaseUrl}${BEHAVIOURS_PAGE_ROUTE}`
@@ -149,13 +156,21 @@ export class SlackChatAdapter
 	}
 
 	/**
-	 * Apply the global `userAccessControl` to the Slack user behind this event.
+	 * Apply blocked/allowed Slack channels, then the global `userAccessControl`
+	 * to the Slack user behind this event.
 	 * With `blockBehavior: "comment"` a denied @mention carries the block
 	 * message, with `{{userName}}` rendered as an @mention of the user. Denied
 	 * thread replies are always dropped silently: thread following forwards
 	 * every reply in a bound thread, and answering each one would spam it.
 	 */
 	checkAccess(event: SlackWebhookEvent): ChatAccessDecision {
+		if (this.isBlocked?.(event.payload.channel)) {
+			return { allowed: false, reason: "Slack channel is blocked" };
+		}
+		// Channel denials stay silent: never post into a channel Cyrus may not use
+		if (this.isChannelAllowed?.(event.payload.channel) === false) {
+			return { allowed: false, reason: "Slack channel is not in allowlist" };
+		}
 		if (!this.userAccessControl) {
 			return { allowed: true };
 		}
@@ -438,12 +453,30 @@ Supported mrkdwn syntax:
 
 			// Thread the reply under the original message
 			const threadTs = event.payload.thread_ts || event.payload.ts;
+			const slackService = new SlackMessageService();
+			let footer: string | undefined;
+			if (event.device?.kind === "shared") {
+				// Shared-runner attribution is intentionally hidden for now.
+				// footer = `From ${event.device.name}`;
+			} else if (event.device?.kind === "personal") {
+				try {
+					const name = await slackService.getUserName(
+						token,
+						event.device.ownerSlackUserId,
+					);
+					if (name) footer = `From ${name}'s device`;
+				} catch {
+					// Profile lookup is optional; never lose the answer if Slack is unavailable.
+					this.logger.warn("Could not resolve the device owner's Slack name");
+				}
+			}
 
-			await new SlackMessageService().postMessage({
+			await slackService.postMessage({
 				token,
 				channel: event.payload.channel,
 				text: summary,
 				thread_ts: threadTs,
+				...(footer ? { footer } : {}),
 			});
 
 			this.logger.info(

@@ -49,6 +49,7 @@ import type {
 	SerializableEdgeWorkerState,
 	SessionStartMessage,
 	StopSignalMessage,
+	ToolApprovalMode,
 	UnassignMessage,
 	UserPromptMessage,
 	Webhook,
@@ -171,7 +172,9 @@ import type { ChatSessionHandlerDeps } from "./ChatSessionHandler.js";
 import { ChatSessionHandler } from "./ChatSessionHandler.js";
 import { ConfigManager, type RepositoryChanges } from "./ConfigManager.js";
 import { DefaultSkillsDeployer } from "./DefaultSkillsDeployer.js";
+import { DeviceHeartbeat } from "./DeviceHeartbeat.js";
 import { EgressProxy } from "./EgressProxy.js";
+import { GitHubCiRouter } from "./GitHubCiRouter.js";
 import { GitService } from "./GitService.js";
 import { GlobalSessionRegistry } from "./GlobalSessionRegistry.js";
 import { McpConfigService } from "./McpConfigService.js";
@@ -308,6 +311,7 @@ export class EdgeWorker extends EventEmitter {
 	 * worktrees and are resumable from any host.
 	 */
 	private claudeSessionStore: SessionStore | null = null;
+	private deviceHeartbeat = new DeviceHeartbeat();
 	/**
 	 * Tracks recently processed issue-update webhook keys to prevent
 	 * duplicate deliveries from Linear's at-least-once delivery.
@@ -645,6 +649,7 @@ export class EdgeWorker extends EventEmitter {
 			this.toolPermissionResolver,
 			this.mcpConfigService,
 			this.runnerSelectionService,
+			() => this.config.customSystemInstructions,
 		);
 		this.activityPoster = new ActivityPoster(
 			this.issueTrackers,
@@ -716,35 +721,7 @@ export class EdgeWorker extends EventEmitter {
 			});
 		}
 
-		// Start config file watcher via ConfigManager
-		this.configManager.on(
-			"configChanged",
-			async (changes: RepositoryChanges) => {
-				const strictMcpConfigChanged =
-					(this.config.strictMcpConfig ?? true) !==
-					(changes.newConfig.strictMcpConfig ?? true);
-				if (strictMcpConfigChanged) {
-					for (const warmSession of this.warmInstances.values()) {
-						warmSession.close();
-					}
-					this.warmInstances.clear();
-				}
-				this.updateLinearWorkspaceTokens(changes.newConfig);
-				await this.removeDeletedRepositories(changes.removed);
-				await this.updateModifiedRepositories(changes.modified);
-				await this.addNewRepositories(changes.added);
-				// Live-update sandbox / egress proxy settings
-				await this.applySandboxConfigChanges(changes.newConfig);
-				this.config = EdgeWorker.normalizeConfigPaths(changes.newConfig);
-				this.configManager.setConfig(changes.newConfig);
-				this.runnerSelectionService.setConfig(changes.newConfig);
-				this.toolPermissionResolver.setConfig(changes.newConfig);
-				this.runnerSlots.setLimit(
-					changes.newConfig.maxConcurrentSessions ?? Number.POSITIVE_INFINITY,
-				);
-			},
-		);
-		this.configManager.startConfigWatcher();
+		this.startConfigWatcher();
 
 		// Start egress proxy if sandbox is enabled.
 		// The proxy intercepts Bash-spawned subprocess traffic only (git, gh, npm, etc.).
@@ -799,6 +776,7 @@ export class EdgeWorker extends EventEmitter {
 
 		// Start shared application server (this also starts Cloudflare tunnel if CLOUDFLARE_TOKEN is set)
 		await this.sharedApplicationServer.start();
+		this.deviceHeartbeat.start();
 	}
 
 	/**
@@ -991,6 +969,90 @@ export class EdgeWorker extends EventEmitter {
 	 * Register the GitHub event transport for receiving forwarded GitHub webhooks from CYHOST.
 	 * This creates a /github-webhook endpoint that handles @cyrusagent mentions on GitHub PRs.
 	 */
+	private async prepareCiPrompt(
+		session: CyrusAgentSession,
+		repository: RepositoryConfig,
+		prompt: string,
+	): Promise<() => Promise<void>> {
+		if (this.agentSessionManager.getSession(session.id) !== session) {
+			throw new Error("CI continuation unavailable for this session origin");
+		}
+		if (session.status === "error")
+			throw new Error(
+				"CI cannot resume an errored or stopped session automatically",
+			);
+		const runner = session.agentRunner;
+		if (runner?.isRunning()) {
+			if (!runner.supportsStreamingInput || !runner.addStreamMessage) {
+				throw new Error(
+					"CI session is busy; redeliver after its turn completes",
+				);
+			}
+			return async () => {
+				runner.addStreamMessage!(prompt);
+			};
+		}
+		const resumeId =
+			session.claudeSessionId ??
+			session.geminiSessionId ??
+			session.codexSessionId ??
+			session.cursorSessionId ??
+			session.opencodeSessionId;
+		if (!resumeId) throw new Error("CI session has no resumable runner");
+		if (!existsSync(session.workspace.path))
+			throw new Error("CI workspace no longer exists");
+		if (
+			session.issueContext?.trackerId !== "github" &&
+			!session.id.startsWith("github-")
+		) {
+			const workspaceId = requireLinearWorkspaceId(repository);
+			return async () => {
+				// A user may have resumed the session during GitHub validation.
+				if (session.agentRunner?.isRunning())
+					throw new Error("CI session became busy");
+				await this.resumeAgentSession(
+					session,
+					repository,
+					session.id,
+					this.agentSessionManager,
+					prompt,
+					"",
+					false,
+					[],
+					workspaceId,
+					50,
+				);
+			};
+		}
+		const { config, runnerType } = await this.buildAgentRunnerConfig(
+			session,
+			repository,
+			session.id,
+			undefined,
+			this.toolPermissionResolver.buildGithubAllowedTools(repository),
+			[
+				repository.repositoryPath,
+				...Object.values(session.workspace.repoPaths ?? {}),
+			],
+			this.buildDisallowedTools(repository),
+			resumeId,
+			undefined,
+			undefined,
+			50,
+			undefined,
+			this.buildSkillSessionContext(repository, undefined, session),
+			"github",
+		);
+		return async () => {
+			if (session.agentRunner?.isRunning())
+				throw new Error("CI session became busy");
+			const resumed = this.createRunnerForType(runnerType, config);
+			this.agentSessionManager.addAgentRunner(session.id, resumed);
+			await this.savePersistedState();
+			await resumed.start(prompt);
+		};
+	}
+
 	private registerGitHubEventTransport(): void {
 		// Use direct GitHub signature verification only when BOTH:
 		// 1. GITHUB_WEBHOOK_SECRET is set (we have the secret to verify)
@@ -1008,7 +1070,26 @@ export class EdgeWorker extends EventEmitter {
 			? process.env.GITHUB_WEBHOOK_SECRET!
 			: process.env.CYRUS_API_KEY || "";
 
+		const ciRouter = new GitHubCiRouter({
+			enabled: () => this.config.ciFailureTrigger === true,
+			home: this.cyrusHome,
+			repositories: () => [...this.repositories.values()],
+			sessions: () => this.getAllKnownSessions(),
+			token: (repository, installationToken) =>
+				this.resolveGitHubToken(
+					{ installationToken } as GitHubWebhookEvent,
+					repository,
+				),
+			prepare: (session, repository, prompt) =>
+				this.prepareCiPrompt(session, repository, prompt),
+			onDispatchError: (sessionId) =>
+				this.logger.error(
+					`CI dispatch failed for session ${sessionId}; inspect ci-dispatch journal before redelivery`,
+				),
+		});
 		this.gitHubEventTransport = new GitHubEventTransport({
+			handleCiFailure: (failure, context) =>
+				ciRouter.handle(failure, context.installationToken),
 			fastifyServer: this.sharedApplicationServer.getFastifyInstance(),
 			verificationMode,
 			secret,
@@ -1166,6 +1247,11 @@ export class EdgeWorker extends EventEmitter {
 					chatRunnerType ?? this.runnerSelectionService.getDefaultRunner();
 				return this.createRunnerForType(runnerType, {
 					...config,
+					// Read the current mode for new and resumed chat runners.
+					...(this.config.toolApprovalMode === "auto" &&
+						(runnerType === "claude" || runnerType === "codex") && {
+							toolApprovalMode: "auto" as const,
+						}),
 					model: this.getDefaultModelForRunner(runnerType),
 					fallbackModel: this.getDefaultFallbackModelForRunner(runnerType),
 				});
@@ -1413,6 +1499,11 @@ export class EdgeWorker extends EventEmitter {
 				repositoryRoutingContext: routingContext,
 				cyrusAppBaseUrl,
 				userAccessControl: this.userAccessControl,
+				isBlocked: (channelId) =>
+					this.config.slackBlockedChannelIds?.includes(channelId) === true,
+				isChannelAllowed: (channelId) =>
+					this.config.slackAllowedChannelIds === undefined ||
+					this.config.slackAllowedChannelIds.includes(channelId),
 			},
 		);
 
@@ -3084,6 +3175,7 @@ ${taskSection}`;
 	 * Stop the edge worker
 	 */
 	async stop(): Promise<void> {
+		this.deviceHeartbeat.stop();
 		// Stop config file watcher
 		await this.configManager.stop();
 		this.planeIssueTracker?.dispose();
@@ -3278,6 +3370,50 @@ ${taskSection}`;
 		} catch {
 			return false;
 		}
+	}
+
+	/** Register live configuration updates before watching the file. */
+	private startConfigWatcher(): void {
+		// Start config file watcher via ConfigManager
+		this.configManager.on(
+			"configChanged",
+			async (changes: RepositoryChanges) => {
+				const strictMcpConfigChanged =
+					(this.config.strictMcpConfig ?? true) !==
+					(changes.newConfig.strictMcpConfig ?? true);
+				// Warm sessions bake permission/MCP options in at startup, so
+				// discard them when any of those inputs change.
+				const toolApprovalModeChanged =
+					(this.config.toolApprovalMode ?? "allowlist") !==
+					(changes.newConfig.toolApprovalMode ?? "allowlist");
+				if (
+					strictMcpConfigChanged ||
+					toolApprovalModeChanged ||
+					this.config.customSystemInstructions !==
+						changes.newConfig.customSystemInstructions
+				) {
+					for (const warmSession of this.warmInstances.values()) {
+						warmSession.close();
+					}
+					this.warmInstances.clear();
+				}
+				this.updateLinearWorkspaceTokens(changes.newConfig);
+				await this.removeDeletedRepositories(changes.removed);
+				await this.updateModifiedRepositories(changes.modified);
+				await this.addNewRepositories(changes.added);
+				// Live-update sandbox / egress proxy settings
+				await this.applySandboxConfigChanges(changes.newConfig);
+				this.config = EdgeWorker.normalizeConfigPaths(changes.newConfig);
+				this.userAccessControl.setGlobalConfig(this.config.userAccessControl);
+				this.configManager.setConfig(changes.newConfig);
+				this.runnerSelectionService.setConfig(changes.newConfig);
+				this.toolPermissionResolver.setConfig(changes.newConfig);
+				this.runnerSlots.setLimit(
+					changes.newConfig.maxConcurrentSessions ?? Number.POSITIVE_INFINITY,
+				);
+			},
+		);
+		this.configManager.startConfigWatcher();
 	}
 
 	/**
@@ -5098,6 +5234,11 @@ ${taskSection}`;
 					undefined, // maxTurns
 					linearWorkspaceId,
 					this.buildSkillSessionContext(primaryRepo, fullIssue, session),
+					"linear",
+					this.toolPermissionResolver.hasPromptScopedToolPolicy(
+						repositories,
+						promptType,
+					),
 				);
 
 			log.debug(
@@ -5874,6 +6015,19 @@ ${taskSection}`;
 		return this.runnerSelectionService.getDefaultFallbackModelForRunner(
 			runnerType,
 		);
+	}
+
+	/**
+	 * Effective `toolApprovalMode` for an issue session. Prompt-scoped tool
+	 * policies (e.g. read-only scopers) are intentionally restricted and stay
+	 * on the allowlist.
+	 */
+	private resolveToolApprovalMode(
+		promptScopedToolPolicy = false,
+	): ToolApprovalMode {
+		return this.config.toolApprovalMode === "auto" && !promptScopedToolPolicy
+			? "auto"
+			: "allowlist";
 	}
 
 	/**
@@ -7098,6 +7252,12 @@ ${input.userComment}
 		 * Defaults to `"linear"` (the pre-platform-aware behavior).
 		 */
 		sessionPlatform: "linear" | "github" | "gitlab" = "linear",
+		/**
+		 * True when the tool lists come from a prompt-specific (label prompt /
+		 * promptDefaults) policy. Those intentionally restricted sessions keep
+		 * the allowlist even when `toolApprovalMode` is `"auto"`.
+		 */
+		promptScopedToolPolicy = false,
 	): Promise<{ config: AgentRunnerConfig; runnerType: RunnerType }> {
 		const log = this.logger.withContext({
 			sessionId,
@@ -7144,6 +7304,7 @@ ${input.userComment}
 					? this.config.linearMcpConfigs
 					: this.config.githubMcpConfigs,
 			strictMcpConfig: this.config.strictMcpConfig,
+			toolApprovalMode: this.resolveToolApprovalMode(promptScopedToolPolicy),
 			linearWorkspaceId,
 			cyrusHome: this.cyrusHome,
 			// Org-matched GitHub App installation token (pushed by cyrus-hosted):
@@ -7177,7 +7338,14 @@ ${input.userComment}
 		// Skipped entirely when warm sessions are not enabled.
 		if (result.runnerType === "claude" && this.isWarmSessionsEnabled()) {
 			const warmSession = this.warmInstances.get(sessionId);
-			if (warmSession) {
+			if (warmSession && result.config.toolApprovalMode === "auto") {
+				// Warm startup options cannot carry ClaudeRunner's protected
+				// auto-mode policy (deny-only canUseTool, sandbox, home-dir
+				// denials), so auto sessions always run a cold query.
+				this.warmInstances.delete(sessionId);
+				warmSession.close();
+				log.debug("Discarding pre-warmed session: toolApprovalMode=auto");
+			} else if (warmSession) {
 				this.warmInstances.delete(sessionId);
 				(
 					result.config as AgentRunnerConfig & { warmSession?: WarmQuery }
@@ -7414,6 +7582,13 @@ ${input.userComment}
 			return;
 		}
 
+		// Auto approval needs ClaudeRunner's cold-query protections, which
+		// WarmQuery cannot accept; skip prewarming entirely.
+		if (this.config.toolApprovalMode === "auto") {
+			this.logger.info("Skipping session pre-warm: toolApprovalMode=auto");
+			return;
+		}
+
 		this.logger.info(
 			`Pre-warming ${candidates.length} most recent Claude sessions...`,
 		);
@@ -7504,6 +7679,11 @@ ${input.userComment}
 						},
 					});
 
+					// Config may have switched to auto while startup was in flight.
+					if (this.config.toolApprovalMode === "auto") {
+						warm.close();
+						return;
+					}
 					this.warmInstances.set(session.id, warm);
 					this.logger.info(
 						`Pre-warmed session ${session.id} (${session.issueContext?.issueIdentifier ?? "unknown"})`,
@@ -7955,6 +8135,11 @@ ${input.userComment}
 				maxTurns, // Pass maxTurns if specified
 				resolvedWorkspaceId,
 				this.buildSkillSessionContext(repository, fullIssue, session),
+				"linear",
+				this.toolPermissionResolver.hasPromptScopedToolPolicy(
+					repository,
+					promptType,
+				),
 			);
 
 		// Create the appropriate runner based on session state
@@ -8104,6 +8289,12 @@ ${input.userComment}
 					this.config.linearWorkspaces[linearWorkspaceId].linearRefreshToken =
 						tokens.refreshToken;
 				}
+				// A config reload replaces this.config, so AttachmentService may
+				// still hold an older workspaces object. The file watcher will not
+				// push this token either, because it compares against this.config.
+				this.attachmentService.setLinearWorkspaces(
+					this.config.linearWorkspaces ?? {},
+				);
 
 				// Persist tokens to config.json
 				await this.saveOAuthTokens({

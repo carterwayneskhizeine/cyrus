@@ -7,7 +7,7 @@ import {
 	SlackReactionService,
 	type SlackWebhookEvent,
 } from "cyrus-slack-event-transport";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRepositoryProvider } from "../src/ChatRepositoryProvider.js";
 import { LiveChatRepositoryProvider } from "../src/ChatRepositoryProvider.js";
 import type {
@@ -887,6 +887,94 @@ describe("SlackChatAdapter access control", () => {
 	});
 });
 
+describe("SlackChatAdapter channel allowlist", () => {
+	const event = (
+		eventType: "app_mention" | "message",
+		channel: string,
+		user = "U1",
+	) =>
+		({
+			eventType,
+			eventId: "Ev1",
+			teamId: "T1",
+			slackBotToken: "xoxb-test",
+			payload: {
+				type: eventType,
+				user,
+				channel,
+				text: "<@UBOT> hello",
+				ts: "1700000000.000200",
+				thread_ts: "1700000000.000100",
+				event_ts: "1700000000.000200",
+			},
+		}) as SlackWebhookEvent;
+
+	/** Mirrors EdgeWorker's live reads so config reloads apply immediately */
+	function adapterWith(
+		config: {
+			allowed?: string[];
+			blocked?: string[];
+		},
+		access?: UserAccessControlConfig,
+	) {
+		return new SlackChatAdapter(createStaticProvider([]), undefined, {
+			userAccessControl: new UserAccessControl(access, new Map()),
+			isBlocked: (id) => config.blocked?.includes(id) === true,
+			isChannelAllowed: (id) =>
+				config.allowed === undefined || config.allowed.includes(id),
+		});
+	}
+
+	it("is unrestricted when absent and denies every channel when empty", () => {
+		const config: { allowed?: string[] } = {};
+		const adapter = adapterWith(config);
+		expect(adapter.checkAccess(event("app_mention", "C1")).allowed).toBe(true);
+
+		config.allowed = [];
+		expect(adapter.checkAccess(event("app_mention", "C1")).allowed).toBe(false);
+	});
+
+	it("gates mentions and thread follow-ups silently, even with comment behavior", () => {
+		const adapter = adapterWith(
+			{ allowed: ["C1"] },
+			{ blockBehavior: "comment" },
+		);
+
+		expect(adapter.checkAccess(event("app_mention", "C1")).allowed).toBe(true);
+		for (const type of ["app_mention", "message"] as const) {
+			expect(adapter.checkAccess(event(type, "C2"))).toEqual({
+				allowed: false,
+				reason: "Slack channel is not in allowlist",
+			});
+		}
+	});
+
+	it("keeps blocked channels first", () => {
+		const adapter = adapterWith({ allowed: ["C1"], blocked: ["C1"] });
+		expect(adapter.checkAccess(event("app_mention", "C1"))).toEqual({
+			allowed: false,
+			reason: "Slack channel is blocked",
+		});
+	});
+
+	it("requires both the channel and the user when both are listed", () => {
+		const adapter = adapterWith(
+			{ allowed: ["C1"] },
+			{ allowedUsers: [{ id: "*" }, { slackId: "U1" }] },
+		);
+
+		expect(adapter.checkAccess(event("app_mention", "C1", "U1")).allowed).toBe(
+			true,
+		);
+		expect(adapter.checkAccess(event("app_mention", "C1", "U2")).allowed).toBe(
+			false,
+		);
+		expect(adapter.checkAccess(event("app_mention", "C2", "U1")).allowed).toBe(
+			false,
+		);
+	});
+});
+
 describe("SlackChatAdapter task instructions", () => {
 	const mentionEvent = (
 		text: string,
@@ -945,6 +1033,11 @@ describe("SlackChatAdapter task instructions", () => {
 });
 
 describe("SlackChatAdapter responding policy", () => {
+	beforeEach(() => {
+		vi.spyOn(SlackMessageService.prototype, "getUserName").mockResolvedValue(
+			"Connor Turland",
+		);
+	});
 	afterEach(() => {
 		vi.restoreAllMocks();
 		delete process.env.SLACK_BOT_TOKEN;
@@ -1029,6 +1122,98 @@ describe("SlackChatAdapter responding policy", () => {
 			text: "It memoizes the result.",
 			thread_ts: "1700000000.000100",
 		});
+	});
+
+	it("credits the verified personal-device owner, even when the message author differs", async () => {
+		const adapter = new SlackChatAdapter(createStaticProvider([]));
+		const postSpy = vi
+			.spyOn(SlackMessageService.prototype, "postMessage")
+			.mockResolvedValue(undefined);
+		const event = {
+			...slackEvent("Cyrus, help"),
+			device: { kind: "personal", ownerSlackUserId: "UOWNER" },
+		};
+		const runner = {
+			getMessages: () => [
+				{ type: "system", subtype: "init", model: "claude-sonnet-4-6" },
+				{
+					type: "assistant",
+					message: {
+						model: "claude-sonnet-4-6",
+						content: [{ type: "text", text: "Done." }],
+					},
+				},
+			],
+		} as any;
+		await adapter.postReply(event, runner);
+		expect(SlackMessageService.prototype.getUserName).toHaveBeenCalledWith(
+			"xoxb-test",
+			"UOWNER",
+		);
+		expect(postSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				text: "Done.",
+				footer: "From Connor Turland's device",
+			}),
+		);
+	});
+
+	it("omits the shared-runner footer while attribution is hidden", async () => {
+		const adapter = new SlackChatAdapter(createStaticProvider([]));
+		const postSpy = vi
+			.spyOn(SlackMessageService.prototype, "postMessage")
+			.mockResolvedValue(undefined);
+		await adapter.postReply(
+			{
+				...slackEvent("Cyrus, help"),
+				device: { kind: "shared", name: "Team runner" },
+			},
+			runnerWithReply("Done."),
+		);
+		expect(postSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				text: "Done.",
+			}),
+		);
+		expect(postSpy.mock.calls[0]?.[0]).not.toHaveProperty("footer");
+		expect(SlackMessageService.prototype.getUserName).not.toHaveBeenCalled();
+	});
+
+	it("omits attribution when trusted device metadata is absent", async () => {
+		const adapter = new SlackChatAdapter(createStaticProvider([]));
+		const postSpy = vi
+			.spyOn(SlackMessageService.prototype, "postMessage")
+			.mockResolvedValue(undefined);
+		await adapter.postReply(
+			slackEvent("Cyrus, help"),
+			runnerWithReply("Done."),
+		);
+		expect(postSpy.mock.calls[0]?.[0]).not.toHaveProperty("footer");
+		expect(SlackMessageService.prototype.getUserName).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"missing",
+		"failed",
+	])("still posts the answer when the profile lookup is %s", async (result) => {
+		const adapter = new SlackChatAdapter(createStaticProvider([]));
+		const postSpy = vi
+			.spyOn(SlackMessageService.prototype, "postMessage")
+			.mockResolvedValue(undefined);
+		const lookup = vi.mocked(SlackMessageService.prototype.getUserName);
+		if (result === "failed") lookup.mockRejectedValueOnce(new Error("timeout"));
+		else lookup.mockResolvedValueOnce(undefined);
+		await adapter.postReply(
+			{
+				...slackEvent("Cyrus, help"),
+				device: { kind: "personal", ownerSlackUserId: "UOWNER" },
+			},
+			runnerWithReply("Done."),
+		);
+		expect(postSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ text: "Done." }),
+		);
+		expect(postSpy.mock.calls[0]?.[0]).not.toHaveProperty("footer");
 	});
 
 	it("swaps the receipt reaction for the processed one after the turn completes", async () => {

@@ -4,6 +4,44 @@ This changelog documents internal development changes, refactors, tooling update
 
 ## [Unreleased]
 
+## [0.2.83] - 2026-11-18
+
+### Changed
+
+- Allow the withdrawn development-only picomatch advisory for this release while requiring a clean production dependency audit.
+- Record the Slack access-control runtime verification for the coordinated release. ([#1614](https://github.com/cyrusagents/cyrus/pull/1614))
+
+## [0.2.82] - 2026-11-18
+
+### Changed
+
+- Record the Slack and Zulip release test drive and allow the development-only picomatch audit exception for this version. ([#1613](https://github.com/cyrusagents/cyrus/pull/1613))
+
+## [0.2.81] - 2026-11-18
+
+### Changed
+
+- Record validation for automatic approvals and extend the release-only development audit exception to v0.2.81. ([#1612](https://github.com/cyrusagents/cyrus/pull/1612))
+
+## [0.2.80] - 2026-11-18
+
+### Changed
+
+- Add hosted configuration fields and live reload support for Slack access controls and custom system instructions.
+
+## [0.2.79] - 2026-11-16
+
+### Changed
+- Recorded v0.2.79 release verification. ([CYPACK-1649](https://linear.app/ceedar/issue/CYPACK-1649/run-a-release))
+
+### Fixed
+- Check the tunnel startup timers' own handles in cleanup tests instead of process-wide timer counts, preventing unrelated timer expiry from failing CI while retaining leak detection. ([CYHOST-1477](https://linear.app/ceedar/issue/CYHOST-1477), [#1604](https://github.com/cyrusagents/cyrus/pull/1604))
+
+## [0.2.78] - 2026-11-12
+
+### Changed
+- Recorded v0.2.78 release verification, including the CI failure routing F1 drive. Bumped `@modelcontextprotocol/sdk` to ^1.32.2 and refreshed hono / @hono/node-server to patched versions to clear `pnpm audit`. ([CYPACK-1641](https://linear.app/ceedar/issue/CYPACK-1641/run-a-release))
+
 ## [0.2.77] - 2026-11-11
 
 ### Changed

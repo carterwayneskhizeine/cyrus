@@ -58,11 +58,16 @@ const RELOAD_MERGED_KEYS = [
 	"linearMcpConfigs",
 	"githubMcpConfigs",
 	"strictMcpConfig",
+	"toolApprovalMode",
+	"slackBlockedChannelIds",
+	"slackAllowedChannelIds",
+	"customSystemInstructions",
 	"defaultDisallowedTools",
 	"issueUpdateTrigger",
 	"maxConcurrentSessions",
 	"slackThreadFollowing",
 	"prReviewTrigger",
+	"ciFailureTrigger",
 	"githubReviewAppPolicies",
 	"userAccessControl",
 	"sandbox",
@@ -365,8 +370,14 @@ export class ConfigManager extends EventEmitter {
 					parsedConfig.linearMcpConfigs || this.config.linearMcpConfigs,
 				githubMcpConfigs:
 					parsedConfig.githubMcpConfigs || this.config.githubMcpConfigs,
+				slackBlockedChannelIds: parsedConfig.slackBlockedChannelIds,
+				// Removing the field allows every unblocked Slack channel again.
+				slackAllowedChannelIds: parsedConfig.slackAllowedChannelIds,
+				customSystemInstructions: parsedConfig.customSystemInstructions,
 				strictMcpConfig:
 					parsedConfig.strictMcpConfig ?? this.config.strictMcpConfig,
+				// Removing the field restores the default allowlist behavior.
+				toolApprovalMode: parsedConfig.toolApprovalMode,
 				defaultDisallowedTools:
 					parsedConfig.defaultDisallowedTools ||
 					this.config.defaultDisallowedTools,
@@ -385,6 +396,8 @@ export class ConfigManager extends EventEmitter {
 				// otherwise keep current or default to true
 				prReviewTrigger:
 					parsedConfig.prReviewTrigger ?? this.config.prReviewTrigger,
+				// Removing the opt-in from config.json disables future CI dispatches.
+				ciFailureTrigger: parsedConfig.ciFailureTrigger === true,
 				githubReviewAppPolicies: parsedConfig.githubReviewAppPolicies ?? [],
 				userAccessControl:
 					parsedConfig.userAccessControl ?? this.config.userAccessControl,
